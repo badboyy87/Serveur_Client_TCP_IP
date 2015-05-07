@@ -1,0 +1,176 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include "controle.h"
+#include <string.h>
+#include <time.h>
+#include <math.h>
+#define N 16
+
+char* convert_vers_bin(int x, int n)
+{
+    char * tab;
+    int i;
+    tab = (char*)malloc(n * sizeof(char));
+    for(i= n - 1; i >= 0; i--)
+    {
+    
+        if (x%2==0) 
+        {
+        	tab[i]='0';
+        } 
+        else 
+        { 
+            tab[i] ='1';
+            x = x - 1;
+        }
+    x = x / 2;
+    }
+    return tab;
+}
+
+int convert_vers_dec(char v[24], int n)
+{ 
+	int i =0;
+	int pred =0;	
+
+	for(i = 0; i<n; i++)
+	{
+		pred += v[i]-48 << (n-i-1);
+	} 
+	
+	return pred;
+}
+
+int checksum(char filename[25]){
+
+	int largeur,hauteur,max_valeur;
+	char type[2];
+
+	int i=0,j=0;
+	int b,v,r;
+	char c;
+
+	//int* sum = (int *) malloc(100 * sizeof(int));	// tableau de la sequence du checksum
+	int sum = 0; 
+	// lecture du fichier
+	FILE * fl = fopen(filename, "r");
+	fscanf(fl,"%s",type);
+ 	fscanf(fl,"%d",&largeur);
+ 	fscanf(fl,"%d",&hauteur);
+ 	fscanf(fl,"%d",&max_valeur);
+
+	// remplissage du tableau
+	struct pixel pixels[largeur][hauteur];
+
+	printf("largeur : %d / hauteur : %d \n", largeur, hauteur);
+	for(i=0;i<hauteur;i++){
+
+		for(j=0;j<largeur;j++) {
+
+	 		fscanf(fl,"%d",&b);
+			fscanf(fl,"%d",&v);
+			fscanf(fl,"%d",&r);  
+    
+			//int test = printf("TEST : %d\n", test);
+
+			pixels[i][j].bleue=b;
+			pixels[i][j].verte=v;
+			pixels[i][j].rouge=r;	
+
+			//printf("rouge :%d -vert :%d -bleu :%d\n", r, v,b); 
+		}
+  	}
+	
+	// traitement du checksum
+	srand(largeur); // initialisation (changer germe)
+	int seed;	// element de la suite pseudo-aléatoire
+	
+	
+	char* tab = (char *)malloc(24 * sizeof(char));// table qui représente une couleur de pixel (8 bits par couleur x 3 couleurs)
+	int it;
+	for(it = 0; it<100; it++){
+		seed = rand() % (largeur*hauteur);
+		
+
+		i = seed%largeur;
+		j = (int)(seed/largeur);
+
+		tab = convert_vers_bin(pixels[i][j].rouge, 8);
+		strcat(tab, convert_vers_bin(pixels[i][j].verte, 8));
+		strcat(tab, convert_vers_bin(pixels[i][j].bleue, 8));
+
+		sum += convert_vers_dec(tab, 24);
+
+	}
+
+	return sum;
+}
+
+
+void ppmtopgm(char filename[25])
+{
+	
+	int largeur,hauteur,max_valeur;
+	char type[2];
+
+	int i=0,j=0;
+	int b,v,r;
+	char c;
+
+
+	FILE * fl = fopen(filename, "r");
+	fscanf(fl,"%s",type);
+ 	fscanf(fl,"%d",&largeur);
+ 	fscanf(fl,"%d",&hauteur);
+ 	fscanf(fl,"%d",&max_valeur);
+
+	struct pixel pixels[largeur][hauteur];
+
+	for(i=0;i<hauteur;i++)
+		for(j=0;j<largeur;j++) {
+	 		fscanf(fl,"%d",&b);
+			fscanf(fl,"%d",&v);
+			fscanf(fl,"%d",&r);  
+    
+	
+		pixels[i][j].bleue=b;
+			pixels[i][j].verte=v;
+			pixels[i][j].rouge=r;	
+  	} 
+
+	  /* Convert and write file */
+	filename[strlen(filename)-2] = 'g';
+
+	FILE *flw  = fopen(filename,"w"); 
+	fprintf(flw,"%s\n","P2");
+	fprintf(flw,"%d %d\n",largeur,hauteur);
+	fprintf(flw,"%d \n",max_valeur);
+	for(i=0;i<hauteur;i++) {
+		for(j=0;j<largeur;j++) { 
+			int p=0.299*pixels[i][j].bleue+0.587*pixels[i][j].verte+0.114*pixels[i][j].rouge; 
+			fprintf(flw,"%d ",p);
+	      	}
+		fprintf(flw,"\n");
+	}
+
+	fclose(fl);
+	fclose(flw);
+
+}
+
+int main(){
+
+	char * filename = "blackbuck.ppm";
+		
+	int  sum = checksum(filename);
+	/*int i;
+	for(i =0; i<100; i++){
+		printf("pixel N°%d : %d \n", i, sum[i]);
+	}*/
+ 	printf("SUM : %d \n", sum);
+	printf("fin\n");
+	return 0;
+}
+
+
+

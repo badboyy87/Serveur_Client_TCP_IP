@@ -1,0 +1,218 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <error.h>
+#include <stdio.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <string.h>
+#include <fcntl.h>
+#include "controle.h"
+
+
+int main (int argc, char *argv[])
+{
+	/*******************CLIENT****************/
+
+	char nomMachine[] = "localhost";
+
+	struct sockaddr_in serveur = { 0 };
+
+	serveur.sin_family=AF_INET;
+	serveur.sin_port= htons(atoi(argv[1]));
+	
+	struct sockaddr_in domaineAF_INET;
+	
+	domaineAF_INET.sin_family=AF_INET;
+	domaineAF_INET.sin_port= htons(0);// car client
+	domaineAF_INET.sin_addr.s_addr=htons(INADDR_ANY); // recoit n'importe quelle adresse ip
+	int i;
+	for(i = 0; i< 8; i++){
+		domaineAF_INET.sin_zero[i] = 0;
+	}
+	
+	// creation soket
+	int sock = socket(AF_INET, SOCK_STREAM, 0);
+	//echec creation de la socket
+	if(sock==-1)
+	{
+		//cas erreur
+		perror("erreur de creation de la socket");
+		exit(-1);
+	}
+	else
+	{
+		printf("Socket client creee \n");
+	}
+	//creation de la socket reussie 
+	
+	//attachement de la socket 
+	int b = bind(sock, (struct sockaddr *)&domaineAF_INET, sizeof(domaineAF_INET));
+	if(b==-1)
+	{
+		//cas erreur
+		perror("erreur de creation du bind");
+		exit(-1);
+	}
+	
+
+	//construction de l'adresse du serveur	
+	struct hostent* host = gethostbyname(nomMachine);
+	
+	gethostname(nomMachine, 4);
+	
+
+	if(host==NULL)
+	{
+		//erreur avec le serveur
+		perror("erreur construction de l'adresse du serveur");
+		exit(-1);
+	}
+	
+	memcpy(&serveur.sin_addr.s_addr, host->h_addr, host->h_length);
+	
+	
+	//demande de connexion
+	int c = connect(sock,(struct sockaddr *)&serveur, sizeof(domaineAF_INET));
+	if(c==-1)
+	{
+		//cas erreur
+		
+		perror("erreur de connexion");
+		exit(-1);
+	}
+	printf ("Attente du serveur \n");
+
+	char message_recu[1024];
+	char message_envoi[1024];
+	char char_envoi='a';
+
+	if( read(sock, message_recu, 256) == -1 ){	// reception du message d'accueil
+		printf("recv 1 : %s\n", message_recu);
+		perror("Erreur de lecture du message d'accueil");
+		exit(-1);
+	}
+	printf ("Message Recu : %s \n", message_recu);
+
+	while(strcmp(message_recu, "fin") != 0){	
+	
+		//printf("Donnez le nom de l'image à charger :\n");
+		printf("1 : Lister les fichiers \n");
+		printf("2 : Recuperer un fichier (Download) \n");
+		printf("3 : Charger un fichier (Upload) \n");
+		scanf("%s", message_envoi);
+		write(sock, message_envoi, 1024);
+		
+		
+		if(strcmp(message_envoi,"1")==0){	// 1 = lister les éléments sur serveur
+			printf("serveur envoie...\n");
+			read(sock, message_recu, 1024);//recoit debut liste
+			while(strcmp(message_recu ,"#stop#")!=0){
+	
+				if(strcmp(message_recu ,"")!=0 && strcmp(message_recu ,"#stop#")!=0){
+					printf("%s\n", message_recu);
+				}
+				read(sock, message_recu, 1024);
+			
+			}
+		}
+
+		else if(strcmp(message_envoi,"2")==0)	// DOWNLOAD
+		{
+			read(sock, message_recu, 1024);
+			printf("Saisir le nom du fichier \n");// -> saisir nom
+			scanf("%s",message_envoi);
+			write(sock,message_envoi,1024); //nomfichier
+			char * filename = message_envoi;
+			int f = creat(filename,S_IWUSR | S_IRUSR);
+			f = open(filename,O_RDWR);
+
+			if(f==-1)
+			{
+				perror("Erreur creation du fichier...");
+				exit(-1);
+			}
+
+			printf("Debut du telechargement...\n");
+
+			int nb= read(sock, message_recu, 1024);
+		
+			while(nb !=0 && strcmp(message_recu,"")!=0)
+			{
+				write(f,message_recu,nb);
+				strcpy(message_recu,"");
+				nb = read(sock, message_recu, 1024);
+			}
+			close(f);
+			printf("Le téléchargement est fini. %s\n", filename);
+		}
+		else if(strcmp(message_envoi,"3")==0)	// UPLOAD
+		{
+
+			printf("Donnez le nom de fichier : \n");
+			scanf("%s", message_envoi);
+			int sum = checksum(message_envoi); 
+			write(sock,message_envoi,1024);	// envoi du nom du fichier
+			printf("OK \n");
+			write(sock, &sum, sizeof(int));// envoi du checksum
+			printf("OK \n");
+			char confirmation[2]; 
+
+			read(sock, confirmation, 2);	// lecture de la confirmation
+			printf(" CONFIRMATION :  %s \n", confirmation);
+			
+			if(strcmp(confirmation, "OK") == 0){
+				printf("Le fichier est admis \n");
+				int f =open(message_envoi,O_RDONLY, S_IWUSR | S_IRUSR);
+				int nblu=1;
+				if(f==-1)
+				{
+					perror("erreur ouverture fichier \n");
+					exit(-1);
+				}
+				nblu= read(f,message_envoi,1024);
+				if(nblu==-1)
+				{
+					perror("erreur lecture fichier \n");
+					exit(-1);
+				}
+				while(nblu!=0)
+				{
+					if(write(sock,message_envoi,nblu) == -1)
+					{
+						perror("erreur d'envoi du message... \n");
+					}
+
+				
+					nblu= read(f,message_envoi,1024);
+					if(nblu==-1)
+					{
+						perror("erreur lecture fichier \n");
+						exit(-1);
+					}
+				
+				}
+				close(f);	
+				sleep(1);	// silence inter trame
+				strcpy(message_envoi, "");
+				write(sock,message_envoi,1);//envoie fin fichier
+			}
+			else{
+				printf("Le fichier que vous avez envoyé n'est pas admissible. \n");
+			}
+
+		}
+		else{
+			// erreur.
+		}
+		strcpy(message_envoi, "");
+		strcpy(message_recu, "");
+	}
+	close (sock);
+
+	return 0;
+
+}

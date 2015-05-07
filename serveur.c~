@@ -1,0 +1,243 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <error.h>
+#include <signal.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include "handlers.h"
+#include <errno.h>
+#include <fcntl.h>
+#include <dirent.h>
+#include "controle.h"
+
+int main(int argc, char *argv[]){
+
+	/* ****************** SIGNAUX ****************** */
+	//gcc -o serveur serveur.c handlers.h handlers.c
+	struct sigaction a;
+	a.sa_handler = finfils;
+	a.sa_flags = SA_RESTART;
+	sigaction(SIGCHLD, &a, NULL);
+
+
+	/* ****************** SERVEUR ****************** */
+
+	/* initialisation de la liste des blacklistés */
+	typedef struct filelist{
+		char filename[25];
+		int checksum;
+	};
+	struct filelist blackList[256];
+	
+	FILE * fichierBlackList = fopen("blacklist.txt", r);
+
+	int iter = 0;
+	while(!EOF){
+		fscanf(f, "%s\t", blackList[i].filename);
+		fscanf(f, "%d\n", blackList[i].checksum);
+	}
+
+	printf("check file : %s \n", blackList[0].filename);
+	printf("check sum : %d \n", blackList[0].checksum);
+
+	struct sockaddr_in domaineAF_INET;
+
+	domaineAF_INET.sin_family=AF_INET;
+	domaineAF_INET.sin_port= htons(atoi(argv[1])); // Choix arbitraire du port (>5000 car déjà utilisés)
+	domaineAF_INET.sin_addr.s_addr=htons(INADDR_ANY); //reçoit n'importe quelle adresse IP
+
+	/* Création de socket */
+	int sock;
+	sock = socket(AF_INET, SOCK_STREAM, 0);
+
+	if(sock != -1)
+	{
+		puts("Une socket a été crée avec succès\n");
+	}
+	else
+	{
+		/* Cas erreur création */
+		perror("Erreur de création de la socket");
+		exit(-1);
+	}
+
+	/* Attachement de la socket */
+
+	if(bind(sock, (struct sockaddr *)&domaineAF_INET, sizeof(domaineAF_INET)) != -1) 
+	{
+		puts("Bind réalisé \n");
+	}
+	else
+	{
+		/* Cas erreur attachement */
+		perror("Erreur bind");
+		exit(-1);
+	}
+
+	/* Ouverture du service */
+
+	if (listen(sock, 20)!=-1)// choix arbitraire
+	{
+
+		puts("En attente de connexion ... \n");
+	}
+	else
+	{
+		perror("Echec du passage en mode écoute");
+		exit(-1);
+	}
+
+
+	/* Acceptation d'une connexion */
+
+	int c;
+	int socketClient;
+	c = sizeof(struct sockaddr_in);
+	
+	while(1){	// boucle d'acceptation
+		socketClient = accept(sock, (struct sockaddr *)&domaineAF_INET, (socklen_t*)&c);
+		if(socketClient != -1)
+		{
+			puts("Accept effectué\n");
+		}
+		else
+		{
+			puts("Erreur lors du accept\n");
+			exit(-1);
+		}
+
+		/* Création d'un processus fils */
+		pid_t ecoute = fork();
+		if(ecoute == 0){
+				char message_envoi[1024] = "Bonjour vous êtes connectés";
+				char message_recu[1024];
+				char char_recu = 'a';
+				while(strcmp(message_recu, "fin")!=0) {
+				printf("envoi du message d'accueil... \n");
+			
+				if(write(socketClient, message_envoi, 1024) == -1){		// envoi message d'accueil
+					perror("erreur d'envoi du message d'accueil... \n");
+				}
+				
+				printf("attente client...\n");
+				read(socketClient, message_recu,1024);
+				printf("reponse client : %s \n",message_recu);
+				
+				if(strcmp(message_recu,"1")==0)	// 1 = liste des éléments sur le serveur
+				{
+					
+					strcpy(message_envoi, "Liste des images sur le serveur :\n");
+					if(write(socketClient, message_envoi, 1024)==-1)
+					{
+						perror("erreur d'envoi de la liste... \n");
+					}
+					//vider pour ensuite concatener
+					strcpy(message_envoi,"");
+					struct dirent *lecture;
+					DIR *rep;
+					rep = opendir("." );
+					//strcpy(message_envoi, "");
+					while ((lecture = readdir(rep))) {
+						if(strstr(lecture->d_name, ".pgm") != NULL
+						 ||strstr(lecture->d_name, ".ppm") != NULL
+						 ||strstr(lecture->d_name, ".pbm") != NULL)
+						 {
+							strcat(message_envoi, lecture->d_name);
+						 	strcat(message_envoi, "\n");
+					  	 }					
+					}
+					
+					write(socketClient, message_envoi, 1024);
+					strcpy(message_envoi,"#stop#");
+					sleep(1);	// silence inter trame
+					write(socketClient, message_envoi, 1024);
+					closedir(rep);
+	
+				}
+				else if (strcmp(message_recu,"2")==0) //DOWNLOAD
+				{
+					//read(socketClient, message_recu, 1024);
+			
+					printf("attends la reponse du client....\n");
+					read(socketClient, message_recu, 1024);//nomfichier
+					int f =open(message_recu,O_RDONLY, S_IWUSR | S_IRUSR);
+					int nblu=1;
+					printf("filename saisi par le client %s \n",message_recu);
+					if(f==-1)
+					{
+						perror("erreur ouverture fichier \n");
+						exit(-1);
+					}
+					nblu= read(f,message_envoi,1024);
+					if(nblu==-1)
+					{
+						perror("erreur lecture fichier \n");
+						exit(-1);
+					}
+					while(nblu!=0)
+					{
+
+						if(write(socketClient,message_envoi,nblu) == -1)
+						{
+							perror("erreur d'envoi du message... \n");
+						}
+
+						
+						nblu= read(f,message_envoi,1024);
+						if(nblu==-1)
+						{
+							perror("erreur lecture fichier \n");
+							exit(-1);
+						}
+						
+					}
+					close(f);	
+					sleep(1);	// silence inter trame
+
+					strcpy(message_envoi, "");//envoie fin fichier
+					write(socketClient,message_envoi,1);
+
+				}	
+				else if(strcmp(message_recu,"3")==0) // UPLOAD
+				{
+					
+					read(socketClient, message_recu, 1024); // NOM DU FICHIER
+
+					char * filename = message_recu;
+					int f = creat(filename,S_IWUSR | S_IRUSR);
+					f = open(filename,O_RDWR);
+
+					if(f==-1)
+					{
+						perror("Erreur creation du fichier...");
+						exit(-1);
+					}
+
+					printf("Debut du telechargement...\n");
+
+					int nb= read(socketClient, message_recu, 1024);
+	
+					while(nb !=0 && strcmp(message_recu,"")!=0)
+					{
+						write(f,message_recu,nb);
+						strcpy(message_recu,"");
+						nb = read(socketClient, message_recu, 1024);
+					}
+					close(f);
+					printf("Le téléchargement est fini. %s\n", filename);
+
+				}
+				else{}
+				strcpy(message_envoi, "");
+				strcpy(message_recu, "");
+				}
+				close(sock);
+			}
+	}
+	return 0;
+}
